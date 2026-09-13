@@ -1,0 +1,56 @@
+@import url('https://fonts.googleapis.com/css2?family=Cormorant+Garamond:wght@500;600&family=Archivo:wght@400;500;600;700&display=swap');
+
+:root {
+  /* Base browns */
+  --brown-950: #1d1611;
+  --brown-900: #2c221b;
+  --brown-800: #3b2d23;
+  --brown-700: #4e3c2e;
+  --brown-500: #7a5f4a;
+  --brown-300: #b39c86;
+
+  /* Warm neutrals */
+  --cream-50:  #fbf8f2;
+  --cream-100: #f4eee2;
+  --cream-200: #e9decd;
+  --cream-300: #d8c9b3;
+
+  /* Clay accent */
+  --clay-700: #8a5230;
+  --clay-600: #a1633c;
+  --clay-500: #b47a52;
+
+  /* Semantic */
+  --green-600: #5a7350;
+  --gold-600:  #a8822f;
+  --red-600:   #9c4433;
+
+  /* Aliases */
+  --surface-page:    var(--cream-50);
+  --surface-card:    #ffffff;
+  --surface-tint:    var(--cream-100);
+  --surface-inverse: var(--brown-900);
+  --text-heading:    var(--brown-900);
+  --text-body:       var(--brown-800);
+  --text-muted:      var(--brown-500);
+  --text-on-dark:    var(--cream-50);
+  --text-on-dark-muted: var(--brown-300);
+  --border-hairline: rgba(44, 34, 27, 0.14);
+  --border-strong:   var(--brown-900);
+  --accent:          var(--clay-600);
+  --accent-hover:    var(--clay-700);
+  --accent-tint:     rgba(161, 99, 60, 0.10);
+
+  --font-serif-display: "Cormorant Garamond", "Times New Roman", serif;
+  --font-sans: "Archivo", "Helvetica Neue", sans-serif;
+  --tracking-label: 0.18em;
+}
+
+* { box-sizing: border-box; }
+body { margin: 0; font-family: var(--font-sans); color: var(--text-body); background: var(--surface-page); -webkit-font-smoothing: antialiased; }
+h1, h2, h3, h4 { color: var(--text-heading); margin: 0; }
+a { color: var(--accent); text-decoration: none; }
+a:hover { color: var(--accent-hover); }
+table { width: 100%; border-collapse: collapse; }
+th { font: 600 11px var(--font-sans); letter-spacing: 0.08em; text-transform: uppercase; color: var(--text-muted); text-align: left; padding: 14px 16px; border-bottom: 1px solid var(--border-hairline); }
+td { padding: 14px 16px; border-bottom: 1px solid var(--border-hairline); font: 14px var(--font-sans); color: var(--text-body); vertical-align: middle; }
