@@ -1,0 +1,260 @@
+{
+  "meta": {
+    "project": "silpiDB",
+    "description": "Optimal Supabase schema for Silpi Architects Dashboard — maps 1:1 to App.jsx screens (Dashboard / Project Detail / Billing Schedule / Bill & Payment Tracker / Users)",
+    "generated": "2026-09-13",
+    "dialect": "postgres / supabase",
+    "source_of_truth": "structure.json (live DB dump) + src/App.jsx + api.js"
+  },
+  "enums": [
+    {
+      "name": "user_role",
+      "values": ["Admin", "Accounts", "Team Lead", "Member"],
+      "used_by": ["users.role"]
+    },
+    {
+      "name": "drawing_status",
+      "values": ["Pending", "In Review", "Approved"],
+      "used_by": ["projects.drawing_status"]
+    },
+    {
+      "name": "bill_status",
+      "values": ["Billed", "Paid", "Overdue", "Partially Billed", "Partially Paid", "Pending"],
+      "note": "DB stores Billed/Paid/Overdue only — Partially Billed/Partially Paid are derived in app/views from payments + billing_stages. Keep enum narrow in DB, expand in view/app logic if needed.",
+      "used_by": ["bills.status"]
+    },
+    {
+      "name": "bank_cash_mode",
+      "values": ["Cash", "Axis Bank", "ICICI Bank", "HDFC Bank", "State Bank of India", "Kotak Mahindra Bank", "Federal Bank", "Other", "Bank"],
+      "used_by": ["payments.received_via"]
+    }
+  ],
+  "tables": [
+    {
+      "name": "users",
+      "description": "Team members — drives role gating, incharge selects, and audit FKs",
+      "dashboard_use": "Sidebar 'Viewing As', User Management table, all Incharge dropdowns, project_incharge/site_incharge/drawing_incharge FKs",
+      "primary_key": "id",
+      "fields": [
+        { "name": "id", "type": "uuid", "nullable": false, "default": "gen_random_uuid()", "pk": true, "description": "PK" },
+        { "name": "auth_user_id", "type": "uuid", "nullable": true, "unique": true, "references": "auth.users.id ON DELETE SET NULL", "description": "Supabase Auth link. Nullable so you can seed users before they sign up" },
+        { "name": "employee_code", "type": "text", "nullable": false, "unique": true, "example": "EMP-014", "description": "Human code shown in User Management" },
+        { "name": "name", "type": "text", "nullable": false, "example": "Priya Nair", "index": true },
+        { "name": "role", "type": "user_role", "nullable": false, "default": "'Member'::user_role", "index": true, "description": "Controls NAV visibility & edit permissions" },
+        { "name": "created_at", "type": "timestamptz", "nullable": false, "default": "now()" },
+        { "name": "updated_at", "type": "timestamptz", "nullable": false, "default": "now()", "on_update": "now()" }
+      ],
+      "indexes": [
+        { "name": "idx_users_role", "columns": ["role"] },
+        { "name": "idx_users_name_trgm", "columns": ["name"], "type": "gin_trgm", "note": "for ILIKE search on incharge filters" }
+      ],
+      "rls": "Enable RLS; policy: authenticated can read all; only Admin can insert/update/delete"
+    },
+    {
+      "name": "projects",
+      "description": "Core project registry — one row per project",
+      "dashboard_use": "Dashboard table (all columns), StatCards (contract totals), Project Detail InfoCards, Billing Schedule header",
+      "primary_key": "id",
+      "fields": [
+        { "name": "id", "type": "uuid", "nullable": false, "default": "gen_random_uuid()", "pk": true },
+        { "name": "number", "type": "text", "nullable": false, "unique": true, "example": "PRJ-014", "description": "Project number, shown as eyebrow on detail page, searchable" },
+        { "name": "name", "type": "text", "nullable": false, "example": "Fontana Hotel", "description": "Searchable project name" },
+        { "name": "category", "type": "text", "nullable": false, "example": "Hospitality", "index": true, "description": "Villas | Residences | Hospitality | Apartments. Use text for flexibility or convert to enum/project_categories table later" },
+        { "name": "total_area", "type": "text", "nullable": true, "example": "42,000 sq.ft", "description": "Kept as text to match existing seed. RECOMMENDATION: split into total_area_value numeric + total_area_unit text for sorting/filtering" },
+        { "name": "contract_value", "type": "numeric(14,2)", "nullable": false, "default": 0, "description": "Original contract value (₹)" },
+        { "name": "revised_contract_value", "type": "numeric(14,2)", "nullable": false, "default": 0, "index": true, "description": "Used for StatCard 'Total Contract Value' — sum scope" },
+        { "name": "project_incharge_id", "type": "uuid", "nullable": true, "references": "users.id ON DELETE SET NULL", "description": "Display-only in detail header" },
+        { "name": "site_incharge_id", "type": "uuid", "nullable": true, "references": "users.id ON DELETE SET NULL", "index": true, "description": "Editable by Admin/Team Lead inline + bulk" },
+        { "name": "drawing_incharge_id", "type": "uuid", "nullable": true, "references": "users.id ON DELETE SET NULL", "index": true, "description": "Editable by Admin/Team Lead inline + bulk" },
+        { "name": "drawing_status", "type": "drawing_status", "nullable": false, "default": "'Pending'::drawing_status", "index": true, "description": "Filterable + bulk editable" },
+        { "name": "site_percent", "type": "numeric(5,2)", "nullable": false, "default": 0, "check": "site_percent BETWEEN 0 AND 100", "index": true, "description": "Progress bar % — drives avg site progress StatCard, filterable via minSite" },
+        { "name": "created_at", "type": "timestamptz", "nullable": false, "default": "now()" },
+        { "name": "updated_at", "type": "timestamptz", "nullable": false, "default": "now()", "on_update": "now()" }
+      ],
+      "indexes": [
+        { "name": "idx_projects_category", "columns": ["category"] },
+        { "name": "idx_projects_drawing_status", "columns": ["drawing_status"] },
+        { "name": "idx_projects_site_incharge", "columns": ["site_incharge_id"] },
+        { "name": "idx_projects_drawing_incharge", "columns": ["drawing_incharge_id"] },
+        { "name": "idx_projects_name_number_trgm", "columns": ["name", "number"], "type": "gin_trgm", "note": "powers dashboard search q" },
+        { "name": "idx_projects_revised_value", "columns": ["revised_contract_value"] },
+        { "name": "idx_projects_number_sort", "columns": ["number"], "note": "for order by number" }
+      ],
+      "api_pattern": "supabase.from('projects').select('*, incharge:project_incharge_id(id,name), site_incharge:site_incharge_id(id,name), drawing_incharge:drawing_incharge_id(id,name), billing_stages(*), project_billing_totals(*)').order('number')"
+    },
+    {
+      "name": "billing_stages",
+      "description": "Per-project billing schedule — template/plan for invoicing (1 project = N stages, pct should sum to 100)",
+      "dashboard_use": "Project Detail > Billing Schedule table (stage, %, amount, billed, remaining, status, Initiate Billing button)",
+      "primary_key": "id",
+      "fields": [
+        { "name": "id", "type": "uuid", "nullable": false, "default": "gen_random_uuid()", "pk": true },
+        { "name": "project_id", "type": "uuid", "nullable": false, "references": "projects.id ON DELETE CASCADE", "index": true },
+        { "name": "stage", "type": "text", "nullable": false, "example": "Superstructure", "description": "Stage label" },
+        { "name": "pct", "type": "numeric(5,2)", "nullable": false, "check": "pct > 0 AND pct <= 100", "description": "% of contract for this stage" },
+        { "name": "amount", "type": "numeric(14,2)", "nullable": false, "description": "Precomputed: round(contract_value * pct / 100) or manually set. Shown as Amount" },
+        { "name": "sort_order", "type": "integer", "nullable": false, "default": 0, "description": "Display order — Mobilization first, Handover last" },
+        { "name": "created_at", "type": "timestamptz", "nullable": false, "default": "now()" },
+        { "name": "updated_at", "type": "timestamptz", "nullable": false, "default": "now()", "on_update": "now()" }
+      ],
+      "indexes": [
+        { "name": "idx_billing_stages_project_sort", "columns": ["project_id", "sort_order"] },
+        { "name": "uq_billing_stages_project_stage", "columns": ["project_id", "stage"], "unique": true, "note": "prevent duplicate stage names per project" }
+      ],
+      "constraints": [
+        "CHECK pct sum per project = 100 (enforce in app or via trigger, not strict DB check to allow draft states)"
+      ]
+    },
+    {
+      "name": "bills",
+      "description": "Invoices raised against a project (optionally linked to a billing_stage). Amount = base; total = amount + taxes - deductions",
+      "dashboard_use": "Project Detail > Bills & Payments table + Global Bill & Payment Tracker (all columns). Powers Outstanding Bills StatCard via sum(total) where status != Paid",
+      "primary_key": "id",
+      "fields": [
+        { "name": "id", "type": "uuid", "nullable": false, "default": "gen_random_uuid()", "pk": true },
+        { "name": "bill_no", "type": "text", "nullable": false, "unique": true, "example": "BL-2026-041", "description": "Unique invoice number, searchable" },
+        { "name": "project_id", "type": "uuid", "nullable": false, "references": "projects.id ON DELETE CASCADE", "index": true },
+        { "name": "billing_stage_id", "type": "uuid", "nullable": true, "references": "billing_stages.id ON DELETE SET NULL", "description": "Nullable — allows 'Other (custom)' bills not tied to schedule" },
+        { "name": "stage_label", "type": "text", "nullable": false, "example": "Superstructure", "description": "Denormalized stage name for display even if billing_stage_id is null or stage renamed" },
+        { "name": "amount", "type": "numeric(14,2)", "nullable": false, "description": "Base bill amount before tax/deductions (₹)" },
+        { "name": "total", "type": "numeric(14,2)", "nullable": false, "description": "Net invoice: amount + sum(bill_taxes.amount) - sum(bill_deductions.amount). Stored for fast aggregation" },
+        { "name": "status", "type": "bill_status", "nullable": false, "default": "'Billed'::bill_status", "index": true },
+        { "name": "date", "type": "date", "nullable": false, "default": "CURRENT_DATE", "index": true, "description": "Invoice date, shown in tracker" },
+        { "name": "comments", "type": "text", "nullable": true, "description": "Optional notes, shown in tracker Comments col" },
+        { "name": "created_by", "type": "uuid", "nullable": true, "references": "users.id ON DELETE SET NULL" },
+        { "name": "created_at", "type": "timestamptz", "nullable": false, "default": "now()" },
+        { "name": "updated_at", "type": "timestamptz", "nullable": false, "default": "now()", "on_update": "now()" }
+      ],
+      "indexes": [
+        { "name": "idx_bills_project", "columns": ["project_id"] },
+        { "name": "idx_bills_project_stage", "columns": ["project_id", "stage_label"] },
+        { "name": "idx_bills_status", "columns": ["status"] },
+        { "name": "idx_bills_date_desc", "columns": ["date DESC"] },
+        { "name": "idx_bills_bill_no_trgm", "columns": ["bill_no"], "type": "gin_trgm" },
+        { "name": "idx_bills_stage_label_trgm", "columns": ["stage_label"], "type": "gin_trgm" }
+      ],
+      "api_pattern": "supabase.from('bills').select('*, project:project_id(name), bill_taxes(*), bill_deductions(*), payments(*)').order('date', {ascending:false})"
+    },
+    {
+      "name": "bill_taxes",
+      "description": "Tax line items per bill — supports multiple taxes (GST 18%, etc.)",
+      "dashboard_use": "Initiate Billing / New Bill forms (Taxes list), tracker Tax column (sum), net invoice calc",
+      "primary_key": "id",
+      "fields": [
+        { "name": "id", "type": "uuid", "nullable": false, "default": "gen_random_uuid()", "pk": true },
+        { "name": "bill_id", "type": "uuid", "nullable": false, "references": "bills.id ON DELETE CASCADE", "index": true },
+        { "name": "label", "type": "text", "nullable": false, "example": "GST" },
+        { "name": "pct", "type": "numeric(5,2)", "nullable": false, "check": "pct >= 0 AND pct <= 100", "example": 18 },
+        { "name": "amount", "type": "numeric(14,2)", "nullable": false, "description": "Precomputed: round(bills.amount * pct / 100)" },
+        { "name": "created_at", "type": "timestamptz", "nullable": false, "default": "now()" }
+      ],
+      "indexes": [{ "name": "idx_bill_taxes_bill", "columns": ["bill_id"] }]
+    },
+    {
+      "name": "bill_deductions",
+      "description": "Deduction line items per bill — TDS, discounts, retention, etc.",
+      "dashboard_use": "Initiate Billing / New Bill forms (Deductions list), net invoice calc (subtracted)",
+      "primary_key": "id",
+      "fields": [
+        { "name": "id", "type": "uuid", "nullable": false, "default": "gen_random_uuid()", "pk": true },
+        { "name": "bill_id", "type": "uuid", "nullable": false, "references": "bills.id ON DELETE CASCADE", "index": true },
+        { "name": "label", "type": "text", "nullable": false, "example": "TDS" },
+        { "name": "pct", "type": "numeric(5,2)", "nullable": false, "check": "pct >= 0 AND pct <= 100", "example": 10 },
+        { "name": "amount", "type": "numeric(14,2)", "nullable": false, "description": "Precomputed: round(bills.amount * pct / 100)" },
+        { "name": "created_at", "type": "timestamptz", "nullable": false, "default": "now()" }
+      ],
+      "indexes": [{ "name": "idx_bill_deductions_bill", "columns": ["bill_id"] }]
+    },
+    {
+      "name": "payments",
+      "description": "Receipts against a bill — supports full and partial payments. Multiple rows per bill allowed",
+      "dashboard_use": "Paid / Remaining / paidSoFar columns in both bill tables, Outstanding Bills calc, Record Payment form, Mode (Bank/Cash) column",
+      "primary_key": "id",
+      "fields": [
+        { "name": "id", "type": "uuid", "nullable": false, "default": "gen_random_uuid()", "pk": true },
+        { "name": "bill_id", "type": "uuid", "nullable": false, "references": "bills.id ON DELETE CASCADE", "index": true },
+        { "name": "amount", "type": "numeric(14,2)", "nullable": false, "check": "amount > 0", "description": "Receipt amount" },
+        { "name": "received_via", "type": "bank_cash_mode", "nullable": false, "default": "'Cash'::bank_cash_mode", "index": true, "description": "Bank/Cash mode shown in tracker" },
+        { "name": "date", "type": "date", "nullable": false, "default": "CURRENT_DATE", "index": true },
+        { "name": "recorded_by", "type": "uuid", "nullable": true, "references": "users.id ON DELETE SET NULL" },
+        { "name": "created_at", "type": "timestamptz", "nullable": false, "default": "now()" }
+      ],
+      "indexes": [
+        { "name": "idx_payments_bill", "columns": ["bill_id"] },
+        { "name": "idx_payments_bill_date", "columns": ["bill_id", "date"] }
+      ]
+    }
+  ],
+  "views": [
+    {
+      "name": "project_billing_totals",
+      "description": "Aggregates per project for StatCards and dashboard Total Billed/Received columns — avoids N+1 queries",
+      "sql": "CREATE OR REPLACE VIEW project_billing_totals AS SELECT p.id AS project_id, COALESCE(SUM(b.total),0) AS total_billed, COALESCE(SUM(CASE WHEN b.status='Paid' THEN b.total ELSE COALESCE(pay.total_paid,0) END),0) AS total_received FROM projects p LEFT JOIN bills b ON b.project_id=p.id LEFT JOIN (SELECT bill_id, SUM(amount) AS total_paid FROM payments GROUP BY bill_id) pay ON pay.bill_id=b.id GROUP BY p.id;",
+      "actual_definition_hint": "Your live view likely sums bills.total and payments — keep it; add index on bills(project_id) and payments(bill_id) to keep it fast",
+      "fields": [
+        { "name": "project_id", "type": "uuid" },
+        { "name": "total_billed", "type": "numeric" },
+        { "name": "total_received", "type": "numeric" }
+      ],
+      "dashboard_use": "Dashboard table Total Billed / Total Received cells + scope totals"
+    },
+    {
+      "name": "bill_payment_totals",
+      "description": "Per-bill paid/remaining — powers Paid/Remaining columns without client-side math",
+      "sql": "CREATE OR REPLACE VIEW bill_payment_totals AS SELECT b.id AS bill_id, b.total, COALESCE(SUM(p.amount),0) AS paid_so_far, (b.total - COALESCE(SUM(p.amount),0)) AS remaining FROM bills b LEFT JOIN payments p ON p.bill_id=b.id GROUP BY b.id, b.total;",
+      "fields": [
+        { "name": "bill_id", "type": "uuid" },
+        { "name": "total", "type": "numeric" },
+        { "name": "paid_so_far", "type": "numeric" },
+        { "name": "remaining", "type": "numeric" }
+      ],
+      "dashboard_use": "Bills & Payments tables: Paid, Remaining; drives Partially Paid status + Record Payment remaining input"
+    }
+  ],
+  "audit_tables": {
+    "note": "Your DB has *_edits tables for every base table (projects_edits, bills_edits, etc.) with (record_id, operation, old_data jsonb, new_data jsonb, changed_by, changed_at). Keep them — populated by trigger. Not queried by dashboard, used for audit/history.",
+    "tables": ["users_edits", "projects_edits", "billing_stages_edits", "bills_edits", "bill_taxes_edits", "bill_deductions_edits", "payments_edits"],
+    "trigger_sql_hint": "CREATE TRIGGER trg_projects_audit AFTER INSERT OR UPDATE OR DELETE ON projects FOR EACH ROW EXECUTE FUNCTION audit.if_modified_func();"
+  },
+  "recommended_sql_additions": {
+    "updated_at_trigger": "CREATE OR REPLACE FUNCTION set_updated_at() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN NEW.updated_at = now(); RETURN NEW; END $$; -- then CREATE TRIGGER trg_projects_updated BEFORE UPDATE ON projects FOR EACH ROW EXECUTE FUNCTION set_updated_at(); (repeat per table)",
+    "indexes_to_add_if_missing": [
+      "CREATE INDEX IF NOT EXISTS idx_projects_name_number_trgm ON projects USING gin (name gin_trgm_ops, number gin_trgm_ops);",
+      "CREATE INDEX IF NOT EXISTS idx_bills_project_status ON bills(project_id, status);",
+      "CREATE INDEX IF NOT EXISTS idx_payments_bill ON payments(bill_id);"
+    ],
+    "optional_normalization": "ALTER TABLE projects ADD COLUMN IF NOT EXISTS total_area_value numeric; ALTER TABLE projects ADD COLUMN IF NOT EXISTS total_area_unit text DEFAULT 'sq.ft'; -- migrate total_area -> total_area_value + unit for numeric sorting/filtering"
+  },
+  "dashboard_to_supabase_map": {
+    "Dashboard > StatCards": {
+      "Active Projects": "count(projects)",
+      "Total Contract Value": "sum(projects.revised_contract_value) for scope (selected or all)",
+      "Outstanding Bills": "sum(bills.total) where status != 'Paid' via bill_payment_totals.remaining — filter by scope project_ids",
+      "Avg Site Progress": "avg(projects.site_percent) for scope"
+    },
+    "Dashboard > Filters": {
+      "q (name/no.)": "projects.name ILIKE %q% OR projects.number ILIKE %q% (trgm index)",
+      "category": "projects.category = $1",
+      "minContract (₹L)": "projects.revised_contract_value >= $1 * 100000",
+      "minBilled (₹L)": "project_billing_totals.total_billed >= $1 * 100000 (join view)",
+      "minReceived (₹L)": "project_billing_totals.total_received >= $1 * 100000",
+      "minSite (%)": "projects.site_percent >= $1",
+      "siteIncharge search": "users.name ILIKE %q% via site_incharge_id join",
+      "drawingIncharge search": "users.name ILIKE %q% via drawing_incharge_id join",
+      "drawingStatus": "projects.drawing_status = $1"
+    },
+    "Project Detail > InfoCards": "projects.* + project_billing_totals (total_billed/received) + users (incharge names)",
+    "Project Detail > Billing Schedule": "billing_stages where project_id=$1 order by sort_order; billed/remaining derived from bills joined to stages (or store billedAmount override via bills sum per stage)",
+    "Project Detail > Bills & Payments & Global Bill & Payment Tracker": "bills + bill_taxes + bill_deductions + payments + bill_payment_totals; filters on bill_no, stage_label, status, received_via",
+    "Forms": {
+      "Initiate Billing": "insert into bills + insert into bill_taxes/bill_deductions (in transaction)",
+      "Record Payment": "insert into payments (bill_id, amount, received_via, date)",
+      "New Bill/Payment (manual)": "insert into bills (with stage_label custom or billing_stage_id) + taxes/deductions; if status=Paid also insert into payments"
+    }
+  },
+  "fetch_examples": {
+    "getProjects_with_totals": "const {data} = await supabase.from('projects').select('*, project_incharge:project_incharge_id(id,name), site_incharge:site_incharge_id(id,name), drawing_incharge:drawing_incharge_id(id,name), billing_stages(*), project_billing_totals:project_billing_totals(total_billed,total_received)').order('number')",
+    "getBills_full": "const {data} = await supabase.from('bills').select('*, project:project_id(name), bill_taxes(*), bill_deductions(*), payments(*), bill_payment_totals:bill_payment_totals(paid_so_far,remaining)').order('date',{ascending:false})",
+    "getUsers": "const {data} = await supabase.from('users').select('*').order('name')"
+  }
+}
