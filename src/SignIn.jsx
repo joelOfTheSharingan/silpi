@@ -9,9 +9,10 @@ export default function SignIn({ onBack }) {
 
   const google = async () => {
     setErr(null); setBusy(true);
+    const redirectTo = window.location.origin + '/silpi/';
     const { error } = await supabase.auth.signInWithOAuth({
       provider: 'google',
-      options: { redirectTo: window.location.origin },
+      options: { redirectTo },
     });
     if (error) setErr(error.message);
     setBusy(false);
@@ -21,9 +22,10 @@ export default function SignIn({ onBack }) {
     e.preventDefault();
     if (!email.trim()) return;
     setErr(null); setBusy(true);
+    const redirectTo = window.location.origin + '/silpi/';
     const { error } = await supabase.auth.signInWithOtp({
       email: email.trim(),
-      options: { emailRedirectTo: window.location.origin },
+      options: { emailRedirectTo: redirectTo },
     });
     if (error) setErr(error.message);
     else setSent(true);
